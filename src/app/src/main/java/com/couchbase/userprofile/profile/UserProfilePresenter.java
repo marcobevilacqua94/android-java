@@ -26,9 +26,7 @@ public class UserProfilePresenter implements UserProfileContract.UserActionsList
         this.mUserProfileView = mUserProfileView;
     }
 
-    // tag::fetchProfile[]
     public void fetchProfile()
-    // end::fetchProfile[]
     {
         Database database = DatabaseManager.getUserProfileDatabase();
 

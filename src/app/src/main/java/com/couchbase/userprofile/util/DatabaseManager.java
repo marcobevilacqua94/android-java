@@ -1,8 +1,9 @@
 package com.couchbase.userprofile.util;
-
+import com.couchbase.lite.internal.CouchbaseLiteInternal;
+import org.apache.commons.io.IOUtils;
 import android.content.Context;
 import android.content.res.AssetManager;
-import android.renderscript.Sampler;
+import android.os.Build;
 import android.util.Log;
 
 import com.couchbase.lite.BasicAuthenticator;
@@ -16,6 +17,7 @@ import com.couchbase.lite.Document;
 import com.couchbase.lite.Expression;
 import com.couchbase.lite.IndexBuilder;
 import com.couchbase.lite.ListenerToken;
+import com.couchbase.lite.LogLevel;
 import com.couchbase.lite.Replicator;
 import com.couchbase.lite.ReplicatorActivityLevel;
 import com.couchbase.lite.ReplicatorChange;
@@ -25,12 +27,18 @@ import com.couchbase.lite.ReplicatorType;
 import com.couchbase.lite.URLEndpoint;
 import com.couchbase.lite.ValueIndexItem;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -38,17 +46,21 @@ import java.util.concurrent.Executor;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
 public class DatabaseManager {
     private static Database userprofileDatabase;
     private static Database universityDatabase;
 
-    private static String userProfileDbName = "userprofile";
     private static String universityDbName = "universities";
 
     private static DatabaseManager instance = null;
 
-    public static String syncGatewayEndpoint = "ws://10.0.2.2:4984";
-
+    public static String syncGatewayEndpoint = "wss://b464j7svmtszxuk.apps.cloud.couchbase.com:4984";
+    private static String userProfileDbName = "userprofile";
     private ListenerToken listenerToken;
     public String currentUser = null;
 
@@ -71,7 +83,10 @@ public class DatabaseManager {
     public static Database getUserProfileDatabase() {
         return userprofileDatabase;
     }
-    public static Database getUniversityDatabase() { return universityDatabase; }
+
+    public static Database getUniversityDatabase() {
+        return universityDatabase;
+    }
 
     public String getCurrentUserDocId() {
         return "user::" + currentUser;
@@ -80,11 +95,11 @@ public class DatabaseManager {
     // tag::initCouchbaseLite[]
     public void initCouchbaseLite(Context context) {
         CouchbaseLite.init(context);
+
     }
     // end::initCouchbaseLite[]
 
-    public void openOrCreateDatabaseForUser(Context context, String username)
-    {
+    public void openOrCreateDatabaseForUser(Context context, String username) {
         DatabaseConfiguration config = new DatabaseConfiguration();
         config.setDirectory(String.format("%s/%s", context.getFilesDir(), username));
 
@@ -99,8 +114,8 @@ public class DatabaseManager {
         }
     }
 
-    public void openPrebuiltDatabase(Context context)
-    {
+    public void openPrebuiltDatabase(Context context) {
+
         File dbFile = new File(context.getFilesDir(), "universities.cblite2");
         DatabaseConfiguration config = new DatabaseConfiguration();
         config.setDirectory(context.getFilesDir().toString());
@@ -119,8 +134,7 @@ public class DatabaseManager {
             } catch (CouchbaseLiteException e) {
                 e.printStackTrace();
             }
-        }
-        else {
+        } else {
             try {
                 universityDatabase = new Database(universityDbName, config);
             } catch (CouchbaseLiteException e) {
@@ -138,21 +152,19 @@ public class DatabaseManager {
         }
     }
 
-    private void registerForDatabaseChanges()
-    {
+    private void registerForDatabaseChanges() {
         // Add database change listener
         listenerToken = userprofileDatabase.addChangeListener(new DatabaseChangeListener() {
             @Override
             public void changed(final DatabaseChange change) {
                 if (change != null) {
-                    for(String docId : change.getDocumentIDs()) {
+                    for (String docId : change.getDocumentIDs()) {
                         Document doc = userprofileDatabase.getDocument(docId);
                         if (doc != null) {
                             Log.i("DatabaseChangeEvent", "Document was added/updated");
-                        }
-                        else {
+                        } else {
 
-                            Log.i("DatabaseChangeEvent","Document was deleted");
+                            Log.i("DatabaseChangeEvent", "Document was deleted");
                         }
                     }
                 }
@@ -161,20 +173,29 @@ public class DatabaseManager {
     }
 
     // tag::startPushAndPullReplicationForCurrentUser[]
-    public static void startPushAndPullReplicationForCurrentUser(String username, String password)
+    public static void startPushAndPullReplicationForCurrentUser(String username, String password, Context context)
     // end::startPushAndPullReplicationForCurrentUser[]
     {
+
         URI url = null;
         try {
             url = new URI(String.format("%s/%s", syncGatewayEndpoint, userProfileDbName));
         } catch (URISyntaxException e) {
             e.printStackTrace();
         }
+        Database.log.getConsole().setLevel(LogLevel.VERBOSE);
 
         // tag::replicationconfig[]
         ReplicatorConfiguration config = new ReplicatorConfiguration(userprofileDatabase, new URLEndpoint(url)); // <1>
         config.setType(ReplicatorType.PUSH_AND_PULL); // <2>
         config.setContinuous(true); // <3>
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                //config.setPinnedServerCertificate(getPinnedCertFile(context));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         config.setAuthenticator(new BasicAuthenticator(username, password.toCharArray())); // <4>
         config.setChannels(Arrays.asList("channel." + username)); // <5>
@@ -215,8 +236,7 @@ public class DatabaseManager {
         // end::replicationstop[]
     }
 
-    public void closeDatabaseForUser()
-    {
+    public void closeDatabaseForUser() {
         try {
             if (userprofileDatabase != null) {
                 deregisterForDatabaseChanges();
@@ -228,8 +248,7 @@ public class DatabaseManager {
         }
     }
 
-    public void closePrebuiltDatabase()
-    {
+    public void closePrebuiltDatabase() {
         try {
             if (userprofileDatabase != null) {
                 deregisterForDatabaseChanges();
@@ -241,8 +260,7 @@ public class DatabaseManager {
         }
     }
 
-    private void deregisterForDatabaseChanges()
-    {
+    private void deregisterForDatabaseChanges() {
         if (listenerToken != null) {
             userprofileDatabase.removeChangeListener(listenerToken);
         }
@@ -281,5 +299,19 @@ public class DatabaseManager {
         zis.close();
 
         in.close();
+    }
+
+    private static byte[] getPinnedCertFile(Context context) {
+        AssetManager assetManager = context.getAssets();
+        InputStream is = null;
+        byte[] bytes = new byte[0];
+        try {
+            is = assetManager.open("certificate.der");
+            return (IOUtils.toByteArray(is));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+
     }
 }
