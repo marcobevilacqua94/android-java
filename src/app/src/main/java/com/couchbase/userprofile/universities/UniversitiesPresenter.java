@@ -30,13 +30,18 @@ public class UniversitiesPresenter implements UniversitiesContract.UserActionsLi
 
     public void fetchUniversities(String name, String country) {
         Database database = DatabaseManager.getUniversityDatabase();
-
-        Expression whereQueryExpression = Function.lower(Expression.property("name")).like(Expression.string("%" + name.toLowerCase() + "%"));
+        Expression whereQueryExpression = null;
+        if (name != null && !name.isEmpty()) {
+            whereQueryExpression = Function.lower(Expression.property("name")).like(Expression.string("%" + name.toLowerCase() + "%"));
+        }
 
         if (country != null && !country.isEmpty()) {
             Expression countryQueryExpression = Function.lower(Expression.property("country")).like(Expression.string("%" + country.toLowerCase() + "%"));
-
-            whereQueryExpression = whereQueryExpression.and(countryQueryExpression);
+            if(whereQueryExpression != null) {
+                whereQueryExpression = whereQueryExpression.and(countryQueryExpression);
+            } else {
+                whereQueryExpression = countryQueryExpression;
+            }
         }
 
         Query query = QueryBuilder.select(SelectResult.all())

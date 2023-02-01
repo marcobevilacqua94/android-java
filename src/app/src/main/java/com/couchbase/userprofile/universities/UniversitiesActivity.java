@@ -53,13 +53,8 @@ public class UniversitiesActivity
     }
 
     public void onLookupTapped(View view) {
-        if (mNameSearchView.getQuery().length() > 0) {
-            if (mCountrySearchView.getQuery().length() > 0) {
-                mActionListener.fetchUniversities(mNameSearchView.getQuery().toString(), mCountrySearchView.getQuery().toString());
-            }
-            else {
-                mActionListener.fetchUniversities(mNameSearchView.getQuery().toString());
-            }
+        if (mNameSearchView.getQuery().length() > 0 || mCountrySearchView.getQuery().length() > 0) {
+            mActionListener.fetchUniversities(mNameSearchView.getQuery().toString(), mCountrySearchView.getQuery().toString());
         }
     }
 
